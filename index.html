@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TasKiro - Gerenciador de Tarefas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        [hidden] { display: none !important; pointer-events: none !important; }
+        .sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 16rem; z-index: 40; }
+        .topbar { position: fixed; top: 0; left: 16rem; right: 0; z-index: 30; }
+        .main-content { margin-left: 16rem; margin-top: 4rem; }
+        .modal-overlay { position: fixed; inset: 0; z-index: 50; }
+        .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 60; }
+        .task-item:hover .task-actions { opacity: 1; }
+        .task-actions { opacity: 0; transition: opacity 0.15s; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+        .toast-enter { animation: slideIn 0.3s ease-out; }
+        .toast-exit { animation: slideOut 0.3s ease-in forwards; }
+        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal-content-enter { animation: scaleIn 0.2s ease-out; }
+    </style>
+    <script>
+    tailwind.config = { safelist: [] };
+    </script>
+</head>
+<body class="h-full bg-gray-50 text-gray-900 antialiased">
+    <!-- Color safelist (hidden, just so Tailwind detects all dynamic classes) -->
+    <div hidden class="bg-indigo-50 bg-indigo-100 bg-indigo-500 bg-indigo-700 text-indigo-500 text-indigo-700 ring-indigo-500 bg-rose-50 bg-rose-100 bg-rose-500 bg-rose-700 text-rose-500 text-rose-700 ring-rose-500 bg-amber-50 bg-amber-100 bg-amber-500 bg-amber-700 text-amber-500 text-amber-700 ring-amber-500 bg-emerald-50 bg-emerald-100 bg-emerald-500 bg-emerald-700 text-emerald-500 text-emerald-700 ring-emerald-500 bg-sky-50 bg-sky-100 bg-sky-500 bg-sky-700 text-sky-500 text-sky-700 ring-sky-500 bg-purple-50 bg-purple-100 bg-purple-500 bg-purple-700 text-purple-500 text-purple-700 ring-purple-500"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar bg-white border-r border-gray-200 flex flex-col">
+        <div class="p-4 border-b border-gray-100 flex items-center gap-2">
+            <img src="https://kiro.dev/images/community/events/thumbnails/meetup2.svg" alt="TasKiro Logo" class="w-8 h-8">
+            <span class="text-lg font-bold text-gray-900">TasKiro</span>
+        </div>
+        <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+            <button onclick="switchView('all')" id="nav-all" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 transition-colors">
+                <i data-lucide="inbox" class="w-4 h-4"></i>
+                <span>Todas as Tarefas</span>
+                <span class="ml-auto text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full" id="count-all">0</span>
+            </button>
+            <button onclick="switchView('today')" id="nav-today" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">
+                <i data-lucide="calendar" class="w-4 h-4"></i>
+                <span>Hoje</span>
+                <span class="ml-auto text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" id="count-today">0</span>
+            </button>
+            <button onclick="switchView('upcoming')" id="nav-upcoming" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">
+                <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+                <span>Em Breve</span>
+                <span class="ml-auto text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" id="count-upcoming">0</span>
+            </button>
+            <button onclick="switchView('completed')" id="nav-completed" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">
+                <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+                <span>Concluidas</span>
+                <span class="ml-auto text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" id="count-completed">0</span>
+            </button>
+        </nav>
+        <div class="p-3 border-t border-gray-100">
+            <p class="text-xs text-gray-400 font-medium mb-2 px-3">CATEGORIAS</p>
+            <div id="category-list" class="space-y-1"></div>
+            <button onclick="openCategoryModal()" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 transition-colors mt-1">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                <span>Nova Categoria</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Top Bar -->
+    <header class="topbar bg-white border-b border-gray-200 flex items-center justify-between px-6 h-16">
+        <h1 id="view-title" class="text-xl font-semibold text-gray-900">Todas as Tarefas</h1>
+        <div class="flex items-center gap-3">
+            <div class="relative">
+                <input type="text" id="search-input" oninput="filterTasks()" placeholder="Buscar tarefas..." class="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-64 bg-gray-50">
+                <i data-lucide="search" class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            </div>
+            <button onclick="openTaskModal()" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                <span>Nova Tarefa</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content p-6">
+        <div id="task-list" class="max-w-4xl mx-auto space-y-2"></div>
+        <div id="empty-state" class="max-w-4xl mx-auto flex flex-col items-center justify-center py-20 text-center" hidden>
+            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="clipboard-list" class="w-8 h-8 text-gray-400"></i>
+            </div>
+            <h3 class="text-lg font-medium text-gray-700 mb-1">Nenhuma tarefa encontrada</h3>
+            <p class="text-sm text-gray-500 mb-4">Comece adicionando sua primeira tarefa</p>
+            <button onclick="openTaskModal()" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                <span>Criar Tarefa</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- Task Modal -->
+    <div id="task-modal" class="modal-overlay flex items-center justify-center bg-black/50" hidden>
+        <div class="modal-content-enter bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between p-5 border-b border-gray-100">
+                <h2 id="task-modal-title" class="text-lg font-semibold">Nova Tarefa</h2>
+                <button onclick="closeTaskModal()" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><i data-lucide="x" class="w-5 h-5 text-gray-500"></i></button>
+            </div>
+            <form id="task-form" onsubmit="saveTask(event)" class="p-5 space-y-4">
+                <input type="hidden" id="task-id" value="">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Titulo</label>
+                    <input type="text" id="task-title" required placeholder="Ex: Finalizar relatorio" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Descricao</label>
+                    <textarea id="task-desc" rows="3" placeholder="Adicione mais detalhes..." class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm resize-none"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                        <input type="date" id="task-date" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Prioridade</label>
+                        <select id="task-priority" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                            <option value="low">Baixa</option>
+                            <option value="medium">Media</option>
+                            <option value="high">Alta</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                    <select id="task-category" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                        <option value="">Sem categoria</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeTaskModal()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div id="category-modal" class="modal-overlay flex items-center justify-center bg-black/50" hidden>
+        <div class="modal-content-enter bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between p-5 border-b border-gray-100">
+                <h2 class="text-lg font-semibold">Nova Categoria</h2>
+                <button onclick="closeCategoryModal()" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><i data-lucide="x" class="w-5 h-5 text-gray-500"></i></button>
+            </div>
+            <form onsubmit="saveCategory(event)" class="p-5 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+                    <input type="text" id="category-name" required placeholder="Ex: Trabalho" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Cor</label>
+                    <div id="color-picker" class="flex gap-2 flex-wrap">
+                        <button type="button" onclick="selectColor('indigo')" class="color-btn w-8 h-8 rounded-full bg-indigo-500 ring-2 ring-offset-2 ring-indigo-500" data-color="indigo"></button>
+                        <button type="button" onclick="selectColor('rose')" class="color-btn w-8 h-8 rounded-full bg-rose-500 ring-2 ring-offset-2 ring-transparent" data-color="rose"></button>
+                        <button type="button" onclick="selectColor('amber')" class="color-btn w-8 h-8 rounded-full bg-amber-500 ring-2 ring-offset-2 ring-transparent" data-color="amber"></button>
+                        <button type="button" onclick="selectColor('emerald')" class="color-btn w-8 h-8 rounded-full bg-emerald-500 ring-2 ring-offset-2 ring-transparent" data-color="emerald"></button>
+                        <button type="button" onclick="selectColor('sky')" class="color-btn w-8 h-8 rounded-full bg-sky-500 ring-2 ring-offset-2 ring-transparent" data-color="sky"></button>
+                        <button type="button" onclick="selectColor('purple')" class="color-btn w-8 h-8 rounded-full bg-purple-500 ring-2 ring-offset-2 ring-transparent" data-color="purple"></button>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeCategoryModal()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">Criar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal-overlay flex items-center justify-center bg-black/50" hidden>
+        <div class="modal-content-enter bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="p-5 text-center">
+                <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="trash-2" class="w-6 h-6 text-red-600"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-1">Excluir Tarefa</h3>
+                <p class="text-sm text-gray-500">Tem certeza que deseja excluir esta tarefa? Esta acao nao pode ser desfeita.</p>
+            </div>
+            <div class="flex border-t border-gray-100">
+                <button onclick="closeDeleteModal()" class="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancelar</button>
+                <button onclick="confirmDelete()" class="flex-1 py-3 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors border-l border-gray-100">Excluir</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container space-y-2"></div>
+
+
+    <script>
+    // ========== STATE ==========
+    let tasks = JSON.parse(localStorage.getItem('taskiro-tasks') || '[]');
+    let categories = JSON.parse(localStorage.getItem('taskiro-categories') || '[{"id":"cat-1","name":"Trabalho","color":"indigo"},{"id":"cat-2","name":"Pessoal","color":"emerald"},{"id":"cat-3","name":"Estudos","color":"amber"}]');
+    let currentView = 'all';
+    let currentCategoryFilter = null;
+    let selectedColor = 'indigo';
+    let taskToDelete = null;
+
+    function persist() {
+        localStorage.setItem('taskiro-tasks', JSON.stringify(tasks));
+        localStorage.setItem('taskiro-categories', JSON.stringify(categories));
+    }
+
+    // ========== TOAST ==========
+    function showToast(message, type) {
+        type = type || 'success';
+        var container = document.getElementById('toast-container');
+        var toast = document.createElement('div');
+        var iconName = type === 'success' ? 'check-circle-2' : type === 'error' ? 'alert-circle' : 'info';
+        var colors = type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800';
+        toast.className = 'toast-enter flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg ' + colors;
+        toast.innerHTML = '<i data-lucide="' + iconName + '" class="w-5 h-5 flex-shrink-0"></i><span class="text-sm font-medium">' + message + '</span>';
+        container.appendChild(toast);
+        lucide.createIcons({nodes: [toast]});
+        setTimeout(function() {
+            toast.classList.remove('toast-enter');
+            toast.classList.add('toast-exit');
+            setTimeout(function() { toast.remove(); }, 300);
+        }, 3000);
+    }
+
+    // ========== MODALS ==========
+    function openTaskModal(taskId) {
+        var modal = document.getElementById('task-modal');
+        var titleEl = document.getElementById('task-modal-title');
+        var form = document.getElementById('task-form');
+        if (taskId) {
+            var task = tasks.find(function(t) { return t.id === taskId; });
+            if (!task) return;
+            titleEl.textContent = 'Editar Tarefa';
+            document.getElementById('task-id').value = task.id;
+            document.getElementById('task-title').value = task.title;
+            document.getElementById('task-desc').value = task.description || '';
+            document.getElementById('task-date').value = task.date || '';
+            document.getElementById('task-priority').value = task.priority || 'low';
+            document.getElementById('task-category').value = task.categoryId || '';
+        } else {
+            titleEl.textContent = 'Nova Tarefa';
+            form.reset();
+            document.getElementById('task-id').value = '';
+        }
+        modal.removeAttribute('hidden');
+    }
+
+    function closeTaskModal() {
+        document.getElementById('task-modal').setAttribute('hidden', '');
+    }
+
+    function openCategoryModal() {
+        document.getElementById('category-name').value = '';
+        selectedColor = 'indigo';
+        updateColorPicker();
+        document.getElementById('category-modal').removeAttribute('hidden');
+    }
+
+    function closeCategoryModal() {
+        document.getElementById('category-modal').setAttribute('hidden', '');
+    }
+
+    function openDeleteModal(taskId) {
+        taskToDelete = taskId;
+        document.getElementById('delete-modal').removeAttribute('hidden');
+    }
+
+    function closeDeleteModal() {
+        taskToDelete = null;
+        document.getElementById('delete-modal').setAttribute('hidden', '');
+    }
+
+    // Close modals on overlay click
+    document.getElementById('task-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeTaskModal();
+    });
+    document.getElementById('category-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeCategoryModal();
+    });
+    document.getElementById('delete-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeDeleteModal();
+    });
+
+
+    // ========== TASK CRUD ==========
+    function saveTask(e) {
+        e.preventDefault();
+        var id = document.getElementById('task-id').value;
+        var title = document.getElementById('task-title').value.trim();
+        var description = document.getElementById('task-desc').value.trim();
+        var date = document.getElementById('task-date').value;
+        var priority = document.getElementById('task-priority').value;
+        var categoryId = document.getElementById('task-category').value;
+        if (!title) return;
+        if (id) {
+            var task = tasks.find(function(t) { return t.id === id; });
+            if (task) {
+                task.title = title;
+                task.description = description;
+                task.date = date;
+                task.priority = priority;
+                task.categoryId = categoryId;
+                showToast('Tarefa atualizada!');
+            }
+        } else {
+            tasks.push({ id: 'task-' + Date.now(), title: title, description: description, date: date, priority: priority, categoryId: categoryId, completed: false, createdAt: new Date().toISOString() });
+            showToast('Tarefa criada!');
+        }
+        persist();
+        closeTaskModal();
+        renderTasks();
+        updateCounts();
+    }
+
+    function toggleTask(taskId) {
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (task) {
+            task.completed = !task.completed;
+            persist();
+            renderTasks();
+            updateCounts();
+            renderCategories();
+            showToast(task.completed ? 'Tarefa concluida!' : 'Tarefa reaberta');
+        }
+    }
+
+    function confirmDelete() {
+        if (taskToDelete) {
+            tasks = tasks.filter(function(t) { return t.id !== taskToDelete; });
+            persist();
+            closeDeleteModal();
+            renderTasks();
+            updateCounts();
+            renderCategories();
+            showToast('Tarefa excluida', 'info');
+        }
+    }
+
+    // ========== CATEGORIES ==========
+    function saveCategory(e) {
+        e.preventDefault();
+        var name = document.getElementById('category-name').value.trim();
+        if (!name) return;
+        categories.push({ id: 'cat-' + Date.now(), name: name, color: selectedColor });
+        persist();
+        closeCategoryModal();
+        renderCategories();
+        updateCategorySelect();
+        showToast('Categoria criada!');
+    }
+
+    function deleteCategory(catId) {
+        categories = categories.filter(function(c) { return c.id !== catId; });
+        tasks.forEach(function(t) { if (t.categoryId === catId) t.categoryId = ''; });
+        persist();
+        renderCategories();
+        updateCategorySelect();
+        renderTasks();
+        showToast('Categoria removida', 'info');
+    }
+
+    function selectColor(color) {
+        selectedColor = color;
+        updateColorPicker();
+    }
+
+    function updateColorPicker() {
+        document.querySelectorAll('.color-btn').forEach(function(btn) {
+            var c = btn.dataset.color;
+            if (c === selectedColor) {
+                btn.className = 'color-btn w-8 h-8 rounded-full bg-' + c + '-500 ring-2 ring-offset-2 ring-' + c + '-500';
+            } else {
+                btn.className = 'color-btn w-8 h-8 rounded-full bg-' + c + '-500 ring-2 ring-offset-2 ring-transparent';
+            }
+        });
+    }
+
+    function renderCategories() {
+        var list = document.getElementById('category-list');
+        list.innerHTML = categories.map(function(cat) {
+            var count = tasks.filter(function(t) { return t.categoryId === cat.id && !t.completed; }).length;
+            var active = currentCategoryFilter === cat.id ? 'bg-gray-100 font-medium' : '';
+            return '<div class="flex items-center group">' +
+                '<button onclick="switchToCategory(\'' + cat.id + '\')" class="flex-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition-colors ' + active + '">' +
+                '<span class="w-3 h-3 rounded-full bg-' + cat.color + '-500"></span>' +
+                '<span>' + cat.name + '</span>' +
+                '<span class="ml-auto text-xs text-gray-400">' + count + '</span>' +
+                '</button>' +
+                '<button onclick="deleteCategory(\'' + cat.id + '\')" class="p-1 rounded hover:bg-red-100 opacity-0 group-hover:opacity-100 transition-opacity mr-1" title="Remover">' +
+                '<i data-lucide="x" class="w-3 h-3 text-red-500"></i>' +
+                '</button></div>';
+        }).join('');
+        lucide.createIcons({nodes: [list]});
+    }
+
+    function updateCategorySelect() {
+        var select = document.getElementById('task-category');
+        select.innerHTML = '<option value="">Sem categoria</option>' +
+            categories.map(function(cat) { return '<option value="' + cat.id + '">' + cat.name + '</option>'; }).join('');
+    }
+
+
+    // ========== VIEWS & FILTERING ==========
+    function switchView(view) {
+        currentView = view;
+        currentCategoryFilter = null;
+        updateNavActive();
+        updateViewTitle();
+        renderTasks();
+        renderCategories();
+    }
+
+    function switchToCategory(catId) {
+        currentView = 'category';
+        currentCategoryFilter = catId;
+        updateNavActive();
+        var cat = categories.find(function(c) { return c.id === catId; });
+        document.getElementById('view-title').textContent = cat ? cat.name : 'Categoria';
+        renderTasks();
+        renderCategories();
+    }
+
+    function updateNavActive() {
+        document.querySelectorAll('.nav-item').forEach(function(btn) {
+            btn.className = btn.className.replace('bg-indigo-50 text-indigo-700', 'text-gray-600 hover:bg-gray-100');
+        });
+        var activeNav = document.getElementById('nav-' + currentView);
+        if (activeNav) {
+            activeNav.className = activeNav.className.replace('text-gray-600 hover:bg-gray-100', 'bg-indigo-50 text-indigo-700');
+        }
+    }
+
+    function updateViewTitle() {
+        var titles = { all: 'Todas as Tarefas', today: 'Hoje', upcoming: 'Em Breve', completed: 'Concluidas' };
+        document.getElementById('view-title').textContent = titles[currentView] || 'Tarefas';
+    }
+
+    function getFilteredTasks() {
+        var today = new Date().toISOString().split('T')[0];
+        var searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
+        var filtered = tasks.slice();
+
+        switch (currentView) {
+            case 'today':
+                filtered = filtered.filter(function(t) { return t.date === today && !t.completed; });
+                break;
+            case 'upcoming':
+                filtered = filtered.filter(function(t) { return t.date > today && !t.completed; });
+                break;
+            case 'completed':
+                filtered = filtered.filter(function(t) { return t.completed; });
+                break;
+            case 'category':
+                filtered = filtered.filter(function(t) { return t.categoryId === currentCategoryFilter && !t.completed; });
+                break;
+            default:
+                filtered = filtered.filter(function(t) { return !t.completed; });
+        }
+
+        if (searchQuery) {
+            filtered = filtered.filter(function(t) {
+                return t.title.toLowerCase().indexOf(searchQuery) !== -1 ||
+                    (t.description && t.description.toLowerCase().indexOf(searchQuery) !== -1);
+            });
+        }
+
+        var priorityOrder = { high: 0, medium: 1, low: 2 };
+        filtered.sort(function(a, b) {
+            var pa = priorityOrder[a.priority] !== undefined ? priorityOrder[a.priority] : 2;
+            var pb = priorityOrder[b.priority] !== undefined ? priorityOrder[b.priority] : 2;
+            if (pa !== pb) return pa - pb;
+            if (a.date && b.date) return a.date.localeCompare(b.date);
+            if (a.date) return -1;
+            if (b.date) return 1;
+            return 0;
+        });
+        return filtered;
+    }
+
+    function filterTasks() { renderTasks(); }
+
+
+    // ========== RENDERING ==========
+    function renderTasks() {
+        var filtered = getFilteredTasks();
+        var taskList = document.getElementById('task-list');
+        var emptyState = document.getElementById('empty-state');
+
+        if (filtered.length === 0) {
+            taskList.innerHTML = '';
+            emptyState.removeAttribute('hidden');
+            return;
+        }
+        emptyState.setAttribute('hidden', '');
+
+        taskList.innerHTML = filtered.map(function(task) {
+            var cat = categories.find(function(c) { return c.id === task.categoryId; });
+            var priorityColors = { high: 'text-red-500', medium: 'text-amber-500', low: 'text-emerald-500' };
+            var priorityLabels = { high: 'Alta', medium: 'Media', low: 'Baixa' };
+            var isOverdue = task.date && task.date < new Date().toISOString().split('T')[0] && !task.completed;
+
+            var catBadge = cat ? '<span class="text-xs px-2 py-0.5 rounded-full bg-' + cat.color + '-100 text-' + cat.color + '-700">' + cat.name + '</span>' : '';
+            var dateHtml = task.date ? '<span class="flex items-center gap-1 text-xs ' + (isOverdue ? 'text-red-500 font-medium' : 'text-gray-400') + '"><i data-lucide="calendar" class="w-3 h-3"></i>' + formatDate(task.date) + '</span>' : '';
+            var checkIcon = task.completed ? '<i data-lucide="check" class="w-3 h-3 text-white"></i>' : '';
+            var checkClass = task.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 hover:border-indigo-400';
+
+            return '<div class="task-item group bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md hover:border-gray-300 transition-all ' + (task.completed ? 'opacity-60' : '') + '">' +
+                '<div class="flex items-start gap-3">' +
+                '<button onclick="toggleTask(\'' + task.id + '\')" class="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 ' + checkClass + ' flex items-center justify-center transition-colors">' + checkIcon + '</button>' +
+                '<div class="flex-1 min-w-0">' +
+                '<div class="flex items-center gap-2 flex-wrap"><h3 class="text-sm font-medium ' + (task.completed ? 'line-through text-gray-400' : 'text-gray-900') + '">' + task.title + '</h3>' + catBadge + '</div>' +
+                (task.description ? '<p class="text-xs text-gray-500 mt-1 truncate">' + task.description + '</p>' : '') +
+                '<div class="flex items-center gap-3 mt-2">' + dateHtml +
+                '<span class="flex items-center gap-1 text-xs ' + priorityColors[task.priority] + '"><i data-lucide="flag" class="w-3 h-3"></i>' + priorityLabels[task.priority] + '</span>' +
+                '</div></div>' +
+                '<div class="task-actions flex items-center gap-1">' +
+                '<button onclick="openTaskModal(\'' + task.id + '\')" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Editar"><i data-lucide="pencil" class="w-4 h-4 text-gray-400"></i></button>' +
+                '<button onclick="openDeleteModal(\'' + task.id + '\')" class="p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4 text-gray-400"></i></button>' +
+                '</div></div></div>';
+        }).join('');
+        lucide.createIcons({nodes: [taskList]});
+    }
+
+    function formatDate(dateStr) {
+        var date = new Date(dateStr + 'T12:00:00');
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        var d = new Date(date); d.setHours(0,0,0,0);
+        if (d.getTime() === today.getTime()) return 'Hoje';
+        if (d.getTime() === tomorrow.getTime()) return 'Amanha';
+        return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    }
+
+    function updateCounts() {
+        var today = new Date().toISOString().split('T')[0];
+        document.getElementById('count-all').textContent = tasks.filter(function(t) { return !t.completed; }).length;
+        document.getElementById('count-today').textContent = tasks.filter(function(t) { return t.date === today && !t.completed; }).length;
+        document.getElementById('count-upcoming').textContent = tasks.filter(function(t) { return t.date > today && !t.completed; }).length;
+        document.getElementById('count-completed').textContent = tasks.filter(function(t) { return t.completed; }).length;
+    }
+
+
+    // ========== KEYBOARD SHORTCUTS ==========
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeTaskModal();
+            closeCategoryModal();
+            closeDeleteModal();
+        }
+        if (e.key === 'n' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'SELECT') {
+            e.preventDefault();
+            openTaskModal();
+        }
+    });
+
+    // ========== SEED DATA ==========
+    function seedData() {
+        if (tasks.length === 0 && !localStorage.getItem('taskiro-seeded')) {
+            var today = new Date().toISOString().split('T')[0];
+            var tom = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            var week = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+            tasks = [
+                { id: 'task-1', title: 'Revisar documentacao do projeto', description: 'Verificar se todos os endpoints estao documentados', date: today, priority: 'high', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
+                { id: 'task-2', title: 'Reuniao de planejamento sprint', description: 'Preparar backlog e prioridades', date: today, priority: 'medium', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
+                { id: 'task-3', title: 'Estudar TypeScript avancado', description: 'Generics, utility types e decorators', date: tom, priority: 'medium', categoryId: 'cat-3', completed: false, createdAt: new Date().toISOString() },
+                { id: 'task-4', title: 'Fazer exercicios pela manha', description: '30 minutos de corrida no parque', date: today, priority: 'low', categoryId: 'cat-2', completed: false, createdAt: new Date().toISOString() },
+                { id: 'task-5', title: 'Implementar autenticacao JWT', description: 'Adicionar refresh tokens e logout', date: week, priority: 'high', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
+                { id: 'task-6', title: 'Comprar livro de design patterns', description: '', date: tom, priority: 'low', categoryId: 'cat-3', completed: true, createdAt: new Date().toISOString() }
+            ];
+            localStorage.setItem('taskiro-seeded', 'true');
+            persist();
+        }
+    }
+
+    // ========== INIT ==========
+    function init() {
+        seedData();
+        renderCategories();
+        updateCategorySelect();
+        renderTasks();
+        updateCounts();
+        lucide.createIcons();
+    }
+    init();
+    </script>
+</body>
+</html>
