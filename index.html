@@ -21,6 +21,7 @@
         .toast-exit { animation: slideOut 0.3s ease-in forwards; }
         @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .modal-content-enter { animation: scaleIn 0.2s ease-out; }
+        .progress-bar { transition: width 0.3s ease; }
     </style>
     <script>
     tailwind.config = { safelist: [] };
@@ -192,22 +193,65 @@
         </div>
     </div>
 
+    <!-- Subtasks Modal -->
+    <div id="subtask-modal" class="modal-overlay flex items-center justify-center bg-black/50" hidden>
+        <div class="modal-content-enter bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between p-5 border-b border-gray-100">
+                <div>
+                    <h2 id="subtask-modal-title" class="text-lg font-semibold">Subtarefas</h2>
+                    <p id="subtask-modal-parent" class="text-xs text-gray-400 mt-0.5"></p>
+                </div>
+                <button onclick="closeSubtaskModal()" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><i data-lucide="x" class="w-5 h-5 text-gray-500"></i></button>
+            </div>
+            <div class="p-5">
+                <!-- Progress -->
+                <div id="subtask-progress-section" class="mb-4" hidden>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-xs font-medium text-gray-500">Progresso</span>
+                        <span id="subtask-progress-label" class="text-xs font-medium text-indigo-600">0 de 0</span>
+                    </div>
+                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div id="subtask-progress-bar" class="progress-bar h-full bg-indigo-500 rounded-full" style="width:0%"></div>
+                    </div>
+                </div>
+                <!-- Subtask list -->
+                <div id="subtask-list" class="space-y-2 max-h-64 overflow-y-auto mb-4"></div>
+                <!-- Add subtask -->
+                <form onsubmit="addSubtask(event)" class="flex gap-2">
+                    <input type="text" id="subtask-input" placeholder="Nova subtarefa..." class="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                    <button type="submit" class="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container space-y-2"></div>
 
 
     <script>
     // ========== STATE ==========
-    let tasks = JSON.parse(localStorage.getItem('taskiro-tasks') || '[]');
-    let categories = JSON.parse(localStorage.getItem('taskiro-categories') || '[{"id":"cat-1","name":"Trabalho","color":"indigo"},{"id":"cat-2","name":"Pessoal","color":"emerald"},{"id":"cat-3","name":"Estudos","color":"amber"}]');
-    let currentView = 'all';
-    let currentCategoryFilter = null;
-    let selectedColor = 'indigo';
-    let taskToDelete = null;
+    var tasks = JSON.parse(localStorage.getItem('taskiro-tasks') || '[]');
+    var categories = JSON.parse(localStorage.getItem('taskiro-categories') || '[{"id":"cat-1","name":"Trabalho","color":"indigo"},{"id":"cat-2","name":"Pessoal","color":"emerald"},{"id":"cat-3","name":"Estudos","color":"amber"}]');
+    var currentView = 'all';
+    var currentCategoryFilter = null;
+    var selectedColor = 'indigo';
+    var taskToDelete = null;
+    var currentSubtaskTaskId = null;
 
     function persist() {
         localStorage.setItem('taskiro-tasks', JSON.stringify(tasks));
         localStorage.setItem('taskiro-categories', JSON.stringify(categories));
+    }
+
+    // Migrate old tasks without subtasks array
+    function migrateTasks() {
+        tasks.forEach(function(t) {
+            if (!Array.isArray(t.subtasks)) t.subtasks = [];
+        });
+        persist();
     }
 
     // ========== TOAST ==========
@@ -276,6 +320,21 @@
         document.getElementById('delete-modal').setAttribute('hidden', '');
     }
 
+    function openSubtaskModal(taskId) {
+        currentSubtaskTaskId = taskId;
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (!task) return;
+        document.getElementById('subtask-modal-parent').textContent = task.title;
+        document.getElementById('subtask-input').value = '';
+        document.getElementById('subtask-modal').removeAttribute('hidden');
+        renderSubtaskList();
+    }
+
+    function closeSubtaskModal() {
+        currentSubtaskTaskId = null;
+        document.getElementById('subtask-modal').setAttribute('hidden', '');
+    }
+
     // Close modals on overlay click
     document.getElementById('task-modal').addEventListener('click', function(e) {
         if (e.target === this) closeTaskModal();
@@ -286,6 +345,88 @@
     document.getElementById('delete-modal').addEventListener('click', function(e) {
         if (e.target === this) closeDeleteModal();
     });
+    document.getElementById('subtask-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeSubtaskModal();
+    });
+
+
+    // ========== SUBTASKS ==========
+    function addSubtask(e) {
+        e.preventDefault();
+        var input = document.getElementById('subtask-input');
+        var title = input.value.trim();
+        if (!title || !currentSubtaskTaskId) return;
+        var task = tasks.find(function(t) { return t.id === currentSubtaskTaskId; });
+        if (!task) return;
+        task.subtasks.push({ id: 'sub-' + Date.now(), title: title, completed: false });
+        persist();
+        input.value = '';
+        renderSubtaskList();
+        renderTasks();
+        showToast('Subtarefa adicionada!');
+    }
+
+    function toggleSubtask(taskId, subtaskId) {
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (!task) return;
+        var sub = task.subtasks.find(function(s) { return s.id === subtaskId; });
+        if (!sub) return;
+        sub.completed = !sub.completed;
+        persist();
+        if (currentSubtaskTaskId === taskId) renderSubtaskList();
+        renderTasks();
+    }
+
+    function deleteSubtask(taskId, subtaskId) {
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (!task) return;
+        task.subtasks = task.subtasks.filter(function(s) { return s.id !== subtaskId; });
+        persist();
+        if (currentSubtaskTaskId === taskId) renderSubtaskList();
+        renderTasks();
+        showToast('Subtarefa removida', 'info');
+    }
+
+    function renderSubtaskList() {
+        var task = tasks.find(function(t) { return t.id === currentSubtaskTaskId; });
+        if (!task) return;
+        var list = document.getElementById('subtask-list');
+        var progressSection = document.getElementById('subtask-progress-section');
+        var total = task.subtasks.length;
+        var done = task.subtasks.filter(function(s) { return s.completed; }).length;
+
+        if (total > 0) {
+            progressSection.removeAttribute('hidden');
+            var pct = Math.round((done / total) * 100);
+            document.getElementById('subtask-progress-label').textContent = done + ' de ' + total;
+            document.getElementById('subtask-progress-bar').style.width = pct + '%';
+        } else {
+            progressSection.setAttribute('hidden', '');
+        }
+
+        if (total === 0) {
+            list.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Nenhuma subtarefa ainda. Adicione uma abaixo.</p>';
+            return;
+        }
+
+        list.innerHTML = task.subtasks.map(function(sub) {
+            var checkClass = sub.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 hover:border-indigo-400';
+            var checkIcon = sub.completed ? '<i data-lucide="check" class="w-2.5 h-2.5 text-white"></i>' : '';
+            return '<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 group">' +
+                '<button onclick="toggleSubtask(\'' + currentSubtaskTaskId + '\', \'' + sub.id + '\')" class="flex-shrink-0 w-4 h-4 rounded-full border-2 ' + checkClass + ' flex items-center justify-center transition-colors">' + checkIcon + '</button>' +
+                '<span class="flex-1 text-sm ' + (sub.completed ? 'line-through text-gray-400' : 'text-gray-700') + '">' + sub.title + '</span>' +
+                '<button onclick="deleteSubtask(\'' + currentSubtaskTaskId + '\', \'' + sub.id + '\')" class="p-1 rounded hover:bg-red-100 opacity-0 group-hover:opacity-100 transition-opacity" title="Remover">' +
+                '<i data-lucide="x" class="w-3 h-3 text-red-500"></i></button></div>';
+        }).join('');
+        lucide.createIcons({nodes: [list]});
+    }
+
+    function getSubtaskProgress(task) {
+        if (!task.subtasks || task.subtasks.length === 0) return null;
+        var total = task.subtasks.length;
+        var done = task.subtasks.filter(function(s) { return s.completed; }).length;
+        return { total: total, done: done, pct: Math.round((done / total) * 100) };
+    }
 
 
     // ========== TASK CRUD ==========
@@ -309,7 +450,7 @@
                 showToast('Tarefa atualizada!');
             }
         } else {
-            tasks.push({ id: 'task-' + Date.now(), title: title, description: description, date: date, priority: priority, categoryId: categoryId, completed: false, createdAt: new Date().toISOString() });
+            tasks.push({ id: 'task-' + Date.now(), title: title, description: description, date: date, priority: priority, categoryId: categoryId, completed: false, subtasks: [], createdAt: new Date().toISOString() });
             showToast('Tarefa criada!');
         }
         persist();
@@ -510,6 +651,26 @@
             var checkIcon = task.completed ? '<i data-lucide="check" class="w-3 h-3 text-white"></i>' : '';
             var checkClass = task.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 hover:border-indigo-400';
 
+            // Subtask progress indicator
+            var progress = getSubtaskProgress(task);
+            var progressHtml = '';
+            if (progress) {
+                var barColor = progress.pct === 100 ? 'bg-emerald-500' : 'bg-indigo-500';
+                progressHtml = '<div class="flex items-center gap-2 mt-2">' +
+                    '<button onclick="openSubtaskModal(\'' + task.id + '\')" class="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 transition-colors" title="Gerenciar subtarefas">' +
+                    '<i data-lucide="list-checks" class="w-3 h-3"></i>' +
+                    '<span>' + progress.done + ' de ' + progress.total + '</span></button>' +
+                    '<div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden max-w-[120px]">' +
+                    '<div class="progress-bar h-full ' + barColor + ' rounded-full" style="width:' + progress.pct + '%"></div></div></div>';
+            }
+
+            // Subtask button (when no subtasks exist)
+            var subtaskBtn = '';
+            if (!progress) {
+                subtaskBtn = '<button onclick="openSubtaskModal(\'' + task.id + '\')" class="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-600 transition-colors mt-2" title="Adicionar subtarefas">' +
+                    '<i data-lucide="list-plus" class="w-3 h-3"></i><span>Subtarefas</span></button>';
+            }
+
             return '<div class="task-item group bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md hover:border-gray-300 transition-all ' + (task.completed ? 'opacity-60' : '') + '">' +
                 '<div class="flex items-start gap-3">' +
                 '<button onclick="toggleTask(\'' + task.id + '\')" class="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 ' + checkClass + ' flex items-center justify-center transition-colors">' + checkIcon + '</button>' +
@@ -518,8 +679,11 @@
                 (task.description ? '<p class="text-xs text-gray-500 mt-1 truncate">' + task.description + '</p>' : '') +
                 '<div class="flex items-center gap-3 mt-2">' + dateHtml +
                 '<span class="flex items-center gap-1 text-xs ' + priorityColors[task.priority] + '"><i data-lucide="flag" class="w-3 h-3"></i>' + priorityLabels[task.priority] + '</span>' +
-                '</div></div>' +
+                '</div>' +
+                progressHtml + subtaskBtn +
+                '</div>' +
                 '<div class="task-actions flex items-center gap-1">' +
+                '<button onclick="openSubtaskModal(\'' + task.id + '\')" class="p-1.5 rounded-lg hover:bg-indigo-50 transition-colors" title="Subtarefas"><i data-lucide="list-checks" class="w-4 h-4 text-gray-400"></i></button>' +
                 '<button onclick="openTaskModal(\'' + task.id + '\')" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Editar"><i data-lucide="pencil" class="w-4 h-4 text-gray-400"></i></button>' +
                 '<button onclick="openDeleteModal(\'' + task.id + '\')" class="p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4 text-gray-400"></i></button>' +
                 '</div></div></div>';
@@ -554,6 +718,7 @@
             closeTaskModal();
             closeCategoryModal();
             closeDeleteModal();
+            closeSubtaskModal();
         }
         if (e.key === 'n' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'SELECT') {
             e.preventDefault();
@@ -563,19 +728,37 @@
 
     // ========== SEED DATA ==========
     function seedData() {
-        if (tasks.length === 0 && !localStorage.getItem('taskiro-seeded')) {
+        if (tasks.length === 0 && !localStorage.getItem('taskiro-seeded-v2')) {
             var today = new Date().toISOString().split('T')[0];
             var tom = new Date(Date.now() + 86400000).toISOString().split('T')[0];
             var week = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
             tasks = [
-                { id: 'task-1', title: 'Revisar documentacao do projeto', description: 'Verificar se todos os endpoints estao documentados', date: today, priority: 'high', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
-                { id: 'task-2', title: 'Reuniao de planejamento sprint', description: 'Preparar backlog e prioridades', date: today, priority: 'medium', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
-                { id: 'task-3', title: 'Estudar TypeScript avancado', description: 'Generics, utility types e decorators', date: tom, priority: 'medium', categoryId: 'cat-3', completed: false, createdAt: new Date().toISOString() },
-                { id: 'task-4', title: 'Fazer exercicios pela manha', description: '30 minutos de corrida no parque', date: today, priority: 'low', categoryId: 'cat-2', completed: false, createdAt: new Date().toISOString() },
-                { id: 'task-5', title: 'Implementar autenticacao JWT', description: 'Adicionar refresh tokens e logout', date: week, priority: 'high', categoryId: 'cat-1', completed: false, createdAt: new Date().toISOString() },
-                { id: 'task-6', title: 'Comprar livro de design patterns', description: '', date: tom, priority: 'low', categoryId: 'cat-3', completed: true, createdAt: new Date().toISOString() }
+                { id: 'task-1', title: 'Revisar documentacao do projeto', description: 'Verificar se todos os endpoints estao documentados', date: today, priority: 'high', categoryId: 'cat-1', completed: false, subtasks: [
+                    { id: 'sub-1', title: 'Verificar endpoints de autenticacao', completed: true },
+                    { id: 'sub-2', title: 'Verificar endpoints de usuarios', completed: true },
+                    { id: 'sub-3', title: 'Verificar endpoints de pagamentos', completed: false },
+                    { id: 'sub-4', title: 'Atualizar exemplos de resposta', completed: false },
+                    { id: 'sub-5', title: 'Revisar codigos de erro', completed: false }
+                ], createdAt: new Date().toISOString() },
+                { id: 'task-2', title: 'Reuniao de planejamento sprint', description: 'Preparar backlog e prioridades', date: today, priority: 'medium', categoryId: 'cat-1', completed: false, subtasks: [
+                    { id: 'sub-6', title: 'Levantar historias do backlog', completed: true },
+                    { id: 'sub-7', title: 'Estimar pontos de complexidade', completed: false },
+                    { id: 'sub-8', title: 'Definir meta da sprint', completed: false }
+                ], createdAt: new Date().toISOString() },
+                { id: 'task-3', title: 'Estudar TypeScript avancado', description: 'Generics, utility types e decorators', date: tom, priority: 'medium', categoryId: 'cat-3', completed: false, subtasks: [
+                    { id: 'sub-9', title: 'Generics basicos e avancados', completed: true },
+                    { id: 'sub-10', title: 'Utility types (Partial, Pick, Omit)', completed: true },
+                    { id: 'sub-11', title: 'Decorators e metadata', completed: false }
+                ], createdAt: new Date().toISOString() },
+                { id: 'task-4', title: 'Fazer exercicios pela manha', description: '30 minutos de corrida no parque', date: today, priority: 'low', categoryId: 'cat-2', completed: false, subtasks: [], createdAt: new Date().toISOString() },
+                { id: 'task-5', title: 'Implementar autenticacao JWT', description: 'Adicionar refresh tokens e logout', date: week, priority: 'high', categoryId: 'cat-1', completed: false, subtasks: [
+                    { id: 'sub-12', title: 'Criar endpoint de refresh token', completed: false },
+                    { id: 'sub-13', title: 'Implementar logout com blacklist', completed: false },
+                    { id: 'sub-14', title: 'Adicionar testes unitarios', completed: false }
+                ], createdAt: new Date().toISOString() },
+                { id: 'task-6', title: 'Comprar livro de design patterns', description: '', date: tom, priority: 'low', categoryId: 'cat-3', completed: true, subtasks: [], createdAt: new Date().toISOString() }
             ];
-            localStorage.setItem('taskiro-seeded', 'true');
+            localStorage.setItem('taskiro-seeded-v2', 'true');
             persist();
         }
     }
@@ -583,6 +766,7 @@
     // ========== INIT ==========
     function init() {
         seedData();
+        migrateTasks();
         renderCategories();
         updateCategorySelect();
         renderTasks();
